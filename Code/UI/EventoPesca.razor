@@ -1,0 +1,171 @@
+@using Sandbox;
+@using Sandbox.UI;
+@using System;
+@inherits PanelComponent
+@if ( IsOpen )
+{
+    <root class="fishing-game">
+        <div class="water-area">
+            @* El cubo del jugador y el pez usan transform: translate(-50%, -50%) para que su centro exacto sea la posición *@
+            <div class="capture-cube" style="left: @(CubePos.x)%; top: @(CubePos.y)%;"></div>
+            <div class="fish" style="left: @(FishPos.x)%; top: @(FishPos.y)%;"></div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-fill" style="height: @(CaptureProgress)%"></div>
+        </div>
+    </root>
+}
+
+<style>
+    .fishing-game {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 400px;
+        height: 400px;
+        /* Reemplazado rgba por hex de 8 dígitos */
+        background-color: #000000CC; 
+        display: flex;
+        padding: 20px;
+        border-radius: 8px;
+        pointer-events: all;
+    }
+
+    .water-area {
+        flex: 1;
+        background-color: #1a2a3a;
+        position: relative;
+        border: 3px solid #55aaff;
+        overflow: hidden;
+        border-radius: 4px;
+    }
+
+    .capture-cube {
+        position: absolute;
+        width: 25%;
+        height: 25%;
+        /* Reemplazado rgba por hex de 8 dígitos */
+        background-color: #55AAFF4D;
+        border: 2px solid #55aaff;
+        transform: translate(-50%, -50%);
+    }
+
+    .fish {
+        position: absolute;
+        width: 8%;
+        height: 8%;
+        background-color: #ffaa00;
+        border-radius: 100px;
+        transform: translate(-50%, -50%);
+    }
+
+    .progress-container {
+        width: 20px;
+        margin-left: 20px;
+        background: #222;
+        border: 2px solid #555;
+        display: flex;
+        flex-direction: column-reverse;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        background: #00ff00;
+        width: 100%;
+        transition: height 0.1s linear;
+    }
+</style>
+
+@code {
+    // Variable estática para que otros scripts (como el del jugador) sepan que estamos pescando
+    public static bool IsFishingModeActive { get; private set; } = true;
+
+    bool IsOpen = false;
+    
+    // Posiciones en porcentaje (0 a 100)
+    Vector2 CubePos = new Vector2( 50f, 50f );
+    Vector2 FishPos = new Vector2( 50f, 50f );
+    
+    float CaptureProgress = 0f;
+    float CubeSpeed = 60f; // Velocidad de movimiento del cubo
+
+    protected override void OnUpdate()
+    {
+        // 1. Activar/Desactivar con la tecla correspondiente (Asegúrate de que "Drop" o "menu" esté bindeado a la Q)
+        if ( Input.Pressed( "Drop" ) || Input.Pressed( "menu" ) )
+        {
+            IsOpen = !IsOpen;
+            IsFishingModeActive = IsOpen; // Actualizamos la variable global
+            
+            if ( IsOpen ) ResetGame();
+        }
+
+        if ( IsOpen )
+        {
+            UpdatePlayerMovement();
+            UpdateFishAI();
+            CheckCapture();
+        }
+    }
+
+    void ResetGame()
+    {
+        CaptureProgress = 0f;
+        CubePos = new Vector2( 50f, 50f );
+        FishPos = new Vector2( 50f, 50f );
+    }
+
+    void UpdatePlayerMovement()
+    {
+        // 2. Movimiento WASD del cubo de captura
+        if ( Input.Down( "Forward" ) ) CubePos.y -= CubeSpeed * RealTime.Delta;
+        if ( Input.Down( "Backward" ) ) CubePos.y += CubeSpeed * RealTime.Delta;
+        if ( Input.Down( "Left" ) ) CubePos.x -= CubeSpeed * RealTime.Delta;
+        if ( Input.Down( "Right" ) ) CubePos.x += CubeSpeed * RealTime.Delta;
+
+        // Mantenemos el cubo dentro de los límites del agua (0% a 100%)
+        CubePos.x = Math.Clamp( CubePos.x, 0f, 100f );
+        CubePos.y = Math.Clamp( CubePos.y, 0f, 100f );
+    }
+
+    void UpdateFishAI()
+    {
+        // Movimiento errático del pez usando ondas superpuestas
+        float time = RealTime.Now;
+        float targetX = 50f + MathF.Sin( time * 1.5f ) * 35f + MathF.Cos( time * 0.7f ) * 15f;
+        float targetY = 50f + MathF.Cos( time * 1.2f ) * 35f + MathF.Sin( time * 0.5f ) * 15f;
+
+        // Suavizamos el movimiento del pez hacia el objetivo
+        FishPos.x = MathX.Lerp( FishPos.x, targetX, RealTime.Delta * 2f );
+        FishPos.y = MathX.Lerp( FishPos.y, targetY, RealTime.Delta * 2f );
+    }
+
+    void CheckCapture()
+    {
+        // Comprobamos la distancia entre el pez y el cubo en los ejes X e Y
+        float distX = MathF.Abs( CubePos.x - FishPos.x );
+        float distY = MathF.Abs( CubePos.y - FishPos.y );
+
+        // Si el pez está a menos de un 12.5% de distancia (la mitad del 25% de tamaño del cubo), está dentro
+        if ( distX < 12.5f && distY < 12.5f )
+        {
+            CaptureProgress += 25f * RealTime.Delta; // Tarda ~4 segundos en llenarse si lo mantienes perfecto
+        }
+        else
+        {
+            CaptureProgress -= 15f * RealTime.Delta; // Pierdes progreso lentamente si se escapa
+        }
+
+        CaptureProgress = Math.Clamp( CaptureProgress, 0f, 100f );
+
+        if ( CaptureProgress >= 100f )
+        {
+            Log.Info( "¡Pez capturado!" );
+            IsOpen = false;
+            IsFishingModeActive = false;
+        }
+    }
+}
